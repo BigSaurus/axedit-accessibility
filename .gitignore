@@ -1,0 +1,6 @@
+# Built add-on packages (attached to GitHub Releases, not committed)
+*.nvda-addon
+
+# Python bytecode
+__pycache__/
+*.pyc

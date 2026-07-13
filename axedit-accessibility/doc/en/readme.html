@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Axe-Edit III Accessibility</title>
+</head>
+<body>
+<h1>Axe-Edit III Accessibility</h1>
+<p>An NVDA add-on that makes <strong>Axe-Edit III</strong> (Fractal Audio's
+editor for the Axe-Fx III) usable with a screen reader. Axe-Edit is a native
+JUCE application whose controls often hide their value in the control name,
+fire no change events, or report contradictory state. This add-on fixes those
+so you can hear what you are doing and move around the grid by keyboard.</p>
+
+<p>Author: Big Saurus. License: GNU GPL v2.
+<a href="https://github.com/BigSaurus/axedit-accessibility">Project home &amp;
+updates</a>. This is an early release &mdash; more features and regular
+updates are on the way.</p>
+
+<h2>What it does</h2>
+<ul>
+<li><strong>Speaks values as you change them.</strong> Slider/knob and
+combo-box values (which live in the control name and fire no event) are
+re-read after each arrow key, so you hear "Gain: 3.40" as you turn it &mdash;
+without the repetitive "Modifier Disabled".</li>
+<li><strong>Clean grid-cell state.</strong> Each grid cell says its block and
+bypass state ("Amp 1A, Active" / "Delay 1A, Bypassed") instead of the default
+contradictory "Active &hellip; not checked".</li>
+<li><strong>No routing-graphic spam.</strong> The 169 unlabelled jack/cable
+graphics are suppressed from focus and object navigation.</li>
+<li><strong>Fast 2D grid navigation</strong> by keyboard (see below).</li>
+</ul>
+
+<h2>Keyboard commands</h2>
+<p>These apply while Axe-Edit III is focused.</p>
+<h3>On a grid cell</h3>
+<table border="1">
+<thead><tr><th>Key</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>Arrow keys</td><td>Move between grid cells (2D). Announces
+"Grid row R column C: block, state".</td></tr>
+<tr><td>Home / End</td><td>Jump to the first / last column of the current
+row.</td></tr>
+<tr><td>Enter</td><td>Select the block under focus so its parameters load in
+the parameters panel.</td></tr>
+</tbody>
+</table>
+
+<h3>Anywhere in Axe-Edit</h3>
+<table border="1">
+<thead><tr><th>Key</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>NVDA+Ctrl+0 &hellip; 9</td><td>Jump straight to the main signal row
+(row 2), that column. For example NVDA+Ctrl+5 is the amp. Columns 10&ndash;13
+are reached with the arrows or End.</td></tr>
+<tr><td>NVDA+Shift+A</td><td>Jump to the Amp block.</td></tr>
+<tr><td>NVDA+Shift+E</td><td>Jump to the Effects grid (row 0, column 0).</td></tr>
+<tr><td>NVDA+Shift+F</td><td>Jump to the first parameter of the current
+block.</td></tr>
+<tr><td>NVDA+Shift+P</td><td>Jump to the Preset selector.</td></tr>
+<tr><td>NVDA+Shift+S</td><td>Jump to the Scene selector.</td></tr>
+<tr><td>NVDA+Shift+I</td><td>Announce full info about the focused control.</td></tr>
+<tr><td>NVDA+Shift+G</td><td>Toggle 2D arrow-key grid navigation (default on).</td></tr>
+<tr><td>NVDA+Shift+J</td><td>Toggle jack/cable noise suppression (default
+on).</td></tr>
+<tr><td>NVDA+Shift+Space</td><td>Activate the focused control (for items that
+only respond to a mouse click).</td></tr>
+</tbody>
+</table>
+
+<h2>Notes</h2>
+<ul>
+<li>If a preset places its chain on a row other than row 2, the number-key
+jumps still target row 2; use the arrows to reach other rows. A future update
+may make this follow your last position.</li>
+<li>The right-click "add block" menu is not yet accessible (Axe-Edit exposes it
+only through IAccessible2); that is planned as a separate piece of work.</li>
+<li>Found a rough edge? Reports are welcome at the project home linked
+above.</li>
+</ul>
+</body>
+</html>
