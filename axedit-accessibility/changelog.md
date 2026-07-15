@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+- **Fixed the packaged add-on failing to install** ("missing a file or invalid
+  file format"). The `manifest.ini` wrongly wrapped its fields in an `[add-on]`
+  section and left the comma-containing `description` unquoted, so NVDA's
+  manifest validator rejected it. Fields are now at the root level and
+  `description` is triple-quoted, matching NVDA's manifest format. (The dev
+  scratchpad install was unaffected, which masked the bug.)
+
 ## 0.3.2
 - Remapped the column-jump commands from NVDA+Shift+digit to **NVDA+Ctrl+digit**
   to avoid a conflict with another add-on.
