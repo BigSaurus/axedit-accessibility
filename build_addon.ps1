@@ -49,6 +49,28 @@ finally {
 }
 
 Write-Host "Built: $outputFile (version $version)"
+
+# Validate the packaged manifest exactly the way NVDA does at install time, so a
+# broken manifest is caught here rather than on a user's device. A manifest error
+# surfaces to users as the misleading "missing a file or invalid file format".
+$validator = Join-Path $PSScriptRoot "validate_manifest.py"
+$python = (Get-Command python -ErrorAction SilentlyContinue)
+if ($python -and (Test-Path $validator)) {
+    Write-Host ""
+    & $python.Source $validator $outputFile
+    if ($LASTEXITCODE -eq 2) {
+        Write-Warning "Manifest not validated (configobj missing). Run: python -m pip install configobj"
+    }
+    elseif ($LASTEXITCODE -ne 0) {
+        Remove-Item $outputFile -Force
+        Write-Error "Manifest validation FAILED - NVDA would reject this package. Removed the bad build. Fix manifest.ini and rebuild."
+        exit 1
+    }
+}
+else {
+    Write-Warning "Skipped manifest validation (python not found). Install Python + 'pip install configobj' to enable it."
+}
+
 Write-Host ""
 Write-Host "To install: open the .nvda-addon file while NVDA is running,"
 Write-Host "or drag and drop it onto the NVDA system tray icon."
