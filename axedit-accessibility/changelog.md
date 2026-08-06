@@ -1,5 +1,104 @@
 # Changelog
 
+## 0.8.0
+- **Open the top menus from the keyboard.** The Preset, Block, Tools, Settings
+  and Help menus are mouse-only in Axe-Edit; they now open with **Alt+P**,
+  **Alt+B**, **Alt+T**, **Alt+S** and **Alt+H** respectively.
+- **No more silent trap on the model list.** Pressing Enter on a model selector
+  opens Axe-Edit's full-window model picker, whose entries are unlabelled
+  graphics with no accessible identity -- so focus landed on a completely silent
+  element. NVDA now announces that the list is open but inaccessible and tells
+  you to press Escape and change the model with the arrow keys instead.
+
+## 0.7.3
+- **Landing on the combo after a channel switch is much faster.** The combo is
+  now located before the toggle (while the layout is stable) and focused the
+  instant the switch drops focus, with tight retries and a cached reference so
+  repeated channel changes never re-scan the window.
+
+## 0.7.2
+- **Re-enabling a block no longer cuts off its announcement.** Turning a block
+  back on reloads its whole parameter panel -- a heavier rebuild than bypassing
+  -- whose events were interrupting the spoken state. The quiet window after a
+  Space bypass now covers that longer, heavier churn for any control.
+- **On/off buttons are buttons again, with correct state.** Presenting them as
+  check boxes made NVDA call them "read only", which was confusing. They are now
+  ordinary buttons relabelled to the truthful "Channel C off" / "Channel C on"
+  (read from the control's real value, since its own name is unreliable).
+- **Landing on the combo after a channel switch is quicker** (starts at ~80ms
+  instead of ~250ms).
+
+## 0.7.1
+- **Bypassing a block no longer gets its announcement cut off.** Axe-Edit fires
+  name/state changes on the block as it rebuilds, and NVDA was announcing those
+  over the top of the state we just spoke. Those churn events are now held back
+  briefly so the announcement is heard cleanly.
+- **Toggling a channel now keeps you able to Tab.** Channel switches clear
+  keyboard focus and the channel buttons themselves cannot be re-focused, so
+  focus now lands on the adjacent combo box just below the channels -- a normal
+  control you can Tab and Shift+Tab from.
+
+## 0.7.0
+- **Bypassing a block no longer interrupts itself or reads the wrong state.**
+  The previous version re-read the cell's name shortly after Space to confirm
+  the toggle, but Axe-Edit updates that name slowly, so it often read the *old*
+  state ("Active" right after bypassing) and cut off the correct announcement.
+  Space now simply speaks the new state once and restores focus quietly.
+- **On/off buttons now report the truth.** A live dump showed Axe-Edit's names
+  for these are unreliable ("Channel D: On" while the control was actually
+  off). They are now presented as check boxes whose checked state comes from
+  the control's real value, not its misleading label.
+- **Enter on an on/off button no longer breaks Tab.** Activating a channel or
+  bypass button clears Axe-Edit's keyboard focus entirely, which left Tab and
+  Shift+Tab with nothing to move from. The add-on now activates without a
+  synthesized click and patiently re-anchors focus on the button (verifying it
+  actually landed) across Axe-Edit's rebuild, so Tab keeps working.
+
+## 0.6.0
+- **Bypassing a block with Space is now instant and keeps focus.** Space
+  speaks the new state right away (e.g. "Amp 1D, Bypassed") instead of waiting
+  for Axe-Edit to rebuild the cell, restores focus to the block quietly, and
+  double-checks the real state a moment later. The previous version waited on
+  the rebuild and could feel as slow as before, or slower.
+- **The on/off buttons (Channel A-D, Bypass, Scene Ignore, the scene buttons)
+  now respond to Enter without losing focus.** These are a different control
+  type from a normal button, which is why earlier versions never attached to
+  them; they are now matched by name. Press Enter to toggle; focus returns to
+  the button and NVDA speaks its new state. They stay presented as buttons.
+- Diagnostic dumps (NVDA+Shift+D) now also record enough to identify a
+  control's role, which is how the on/off-button issue above was pinned down.
+
+## 0.5.0
+- **Experimental support for FM9-Edit and FM3-Edit.** All the behaviour moved
+  into a shared module, and each editor now gets a small app module that binds
+  it. Fractal's editors share a JUCE codebase and this add-on keys off the
+  control-naming patterns that codebase generates, so the fixes are expected to
+  carry across &mdash; but **only Axe-Edit III has been tested**. Feedback from
+  FM9 and FM3 owners is what will move these out of "experimental".
+- **NVDA+Shift+D saves a diagnostic dump** of the current editor window to your
+  Desktop: every control, its name, role, state, value and position. This is
+  what makes confirming a new editor possible without owning the hardware
+  &mdash; open the editor, press the key, send the file.
+
+## 0.4.0
+- **Space no longer loses focus.** Bypassing or re-enabling a block with Space
+  made Axe-Edit rebuild the grid cell and drop keyboard focus, leaving you to
+  hunt for a control again. Focus is now restored to the same cell and its new
+  state is spoken ("Amp 1A, Bypassed"). If you have already arrowed to another
+  cell, you are left where you are rather than yanked back.
+- **On/off buttons are usable from the keyboard.** Buttons like *Bypass*,
+  *Scene Ignore*, *Channel A&ndash;D* and the scene buttons were mouse-only.
+  **Enter** now toggles them and speaks the result. Space is deliberately left
+  alone, since Space is the grid's bypass gesture.
+- **On/off buttons now report the truth.** Their name suffix is stale &mdash;
+  Axe-Edit labels the *active* channel "Channel A: Off" while the control's
+  actual value is On. State is now taken from the control's value and the
+  misleading suffix is dropped, so they read as plain checked / not checked
+  checkboxes.
+- Grid size is now measured from the running application instead of being
+  hardcoded to the Axe-Fx III's 6&times;14, so a differently-shaped grid
+  navigates correctly.
+
 ## 0.3.3
 - **Fixed the packaged add-on failing to install** ("missing a file or invalid
   file format"). The `manifest.ini` wrongly wrapped its fields in an `[add-on]`

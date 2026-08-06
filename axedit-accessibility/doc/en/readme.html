@@ -17,6 +17,18 @@ so you can hear what you are doing and move around the grid by keyboard.</p>
 updates</a>. This is an early release &mdash; more features and regular
 updates are on the way.</p>
 
+<h2>Which editors are supported</h2>
+<p><strong>Axe-Edit III</strong> is the one that has been tested against real
+hardware.</p>
+<p>Experimental, <strong>untested</strong> support is also included for
+<strong>FM9-Edit</strong> and <strong>FM3-Edit</strong>. Fractal's editors are
+built from a shared codebase and this add-on relies on the control naming that
+codebase produces, so the fixes are expected to apply &mdash; but nobody has
+confirmed it yet. If you own an FM9 or FM3 and try it, please get in touch: open
+the editor, press <strong>NVDA+Shift+D</strong>, and send the file that appears
+on your Desktop along with a note about what did and didn't work. That is enough
+to fix whatever is off.</p>
+
 <h2>What it does</h2>
 <ul>
 <li><strong>Speaks values as you change them.</strong> Slider/knob and
@@ -43,6 +55,24 @@ graphics are suppressed from focus and object navigation.</li>
 row.</td></tr>
 <tr><td>Enter</td><td>Select the block under focus so its parameters load in
 the parameters panel.</td></tr>
+<tr><td>Space</td><td>Bypass or re-enable the block, then speak its new state.
+Focus stays on the cell &mdash; Axe-Edit normally drops focus entirely when a
+block is toggled.</td></tr>
+</tbody>
+</table>
+
+<h3>On an on/off button</h3>
+<p>Buttons such as <em>Bypass</em>, <em>Scene Ignore</em>, <em>Channel A&ndash;D</em>
+and the scene buttons are mouse-only in Axe-Edit &mdash; pressing them normally
+drops keyboard focus. Their built-in labels are unreliable, so the add-on
+relabels them to their true state, e.g. "Channel C off" / "Channel C on".</p>
+<table border="1">
+<thead><tr><th>Key</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>Enter</td><td>Toggle the button. For a channel button, focus then lands
+on the combo box just below the channels (the channel buttons themselves cannot
+hold keyboard focus), so Tab and Shift+Tab keep working. Space is left for
+bypassing blocks on the grid.</td></tr>
 </tbody>
 </table>
 
@@ -59,10 +89,14 @@ are reached with the arrows or End.</td></tr>
 block.</td></tr>
 <tr><td>NVDA+Shift+P</td><td>Jump to the Preset selector.</td></tr>
 <tr><td>NVDA+Shift+S</td><td>Jump to the Scene selector.</td></tr>
+<tr><td>Alt+P / Alt+B / Alt+T / Alt+S / Alt+H</td><td>Open the Preset, Block,
+Tools, Settings or Help menu (these are mouse-only in Axe-Edit).</td></tr>
 <tr><td>NVDA+Shift+I</td><td>Announce full info about the focused control.</td></tr>
 <tr><td>NVDA+Shift+G</td><td>Toggle 2D arrow-key grid navigation (default on).</td></tr>
 <tr><td>NVDA+Shift+J</td><td>Toggle jack/cable noise suppression (default
 on).</td></tr>
+<tr><td>NVDA+Shift+D</td><td>Save a diagnostic dump of the current editor
+window to your Desktop (used to add support for other Fractal editors).</td></tr>
 <tr><td>NVDA+Shift+Space</td><td>Activate the focused control (for items that
 only respond to a mouse click).</td></tr>
 </tbody>
@@ -75,6 +109,11 @@ jumps still target row 2; use the arrows to reach other rows. A future update
 may make this follow your last position.</li>
 <li>The right-click "add block" menu is not yet accessible (Axe-Edit exposes it
 only through IAccessible2); that is planned as a separate piece of work.</li>
+<li>Pressing Enter on a model selector opens Axe-Edit's full-window model
+picker, whose entries are drawn graphics with no accessible identity, so a
+screen reader cannot read them. NVDA will tell you the list is open but
+inaccessible &mdash; press <strong>Escape</strong> to close it and change the
+model with the <strong>arrow keys</strong> instead (which are spoken as you go).</li>
 <li>Found a rough edge? Reports are welcome at the project home linked
 above.</li>
 </ul>

@@ -6,16 +6,16 @@
 # See the LICENSE file (GNU GPL v2) distributed with this add-on for details.
 
 """
-appModules/axe-edit iii.py
+appModules/fm3-edit.py
 
-Binds the shared Fractal editor support to Axe-Edit III (Axe-Fx III).
+Binds the shared Fractal editor support to FM3-Edit (FM3).
 
-NVDA matches app modules by executable name, so this file exists purely to
-attach ``fractalEditCore`` to ``Axe-Edit III.exe``. All behaviour, and all the
-documentation of it, lives in ``fractalEditCore.py`` -- this module's own name
-contains spaces and so cannot be imported from.
+UNTESTED -- see the notes in ``fm9-edit.py``, which apply identically here.
+The executable name ``FM3-Edit.exe`` comes from Fractal's macOS bundle
+``FM3-Edit.app``.
 
-This is the one configuration that has been tested against real hardware.
+Press NVDA+Shift+D with FM3-Edit focused to save a diagnostic dump to the
+Desktop.
 """
 
 try:
