@@ -9,5 +9,7 @@ __pycache__/
 axedit-accessibility/docs/
 axedit-accessibility/TESTING-FM9-FM3.md
 
-# Private PII denylist for scrub_pii.py -- must never be published
+# Maintainer-only release tooling kept local, not published
+scrub_pii.py
 pii_tokens.local
+RELEASE.md
