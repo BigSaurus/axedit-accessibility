@@ -86,20 +86,21 @@ else {
     Write-Warning "Skipped manifest validation (python not found). Install Python + 'pip install configobj' to enable it."
 }
 
-# Scrub the package AND the public docs for personal data before it can ship
-# (real name, personal email, local user paths, machine names, stray dumps).
+# Run the maintainer privacy scrub if it's present (kept out of this repo, so it
+# is normally absent). If absent, skip with a note -- contributor builds don't
+# need it; the maintainer runs it before publishing.
 $scrubber = Join-Path $PSScriptRoot "scrub_pii.py"
 if ($python -and (Test-Path $scrubber)) {
     Write-Host ""
     & $python.Source $scrubber $outputFile
     if ($LASTEXITCODE -ne 0) {
         Remove-Item $outputFile -Force
-        Write-Error "PII scrub FAILED - private data would have shipped. Removed the build. Fix the findings above and rebuild."
+        Write-Error "Privacy scrub FAILED. Removed the build. Fix the findings above and rebuild."
         exit 1
     }
 }
 else {
-    Write-Warning "Skipped PII scrub (python or scrub_pii.py not found). Do NOT publish this build without running the scrub."
+    Write-Host "Note: maintainer privacy scrub not present; skipped (fine for local builds)."
 }
 
 Write-Host ""
