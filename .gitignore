@@ -8,6 +8,9 @@ __pycache__/
 # Private working backlog kept local (the public backlog is Issues + ROADMAP.md)
 axedit-accessibility/docs/BACKLOG.md
 
+# Private maintainer memory: publishing/privacy decisions (never publish)
+axedit-accessibility/docs/PUBLISHING.md
+
 # Maintainer-only release/roadmap tooling kept local, not published
 scrub_pii.py
 pii_tokens.local
