@@ -5,11 +5,11 @@
 __pycache__/
 *.pyc
 
-# Developer-only docs kept local, not published (roadmap/test notes)
-axedit-accessibility/docs/
-axedit-accessibility/TESTING-FM9-FM3.md
+# Private working backlog kept local (the public backlog is Issues + ROADMAP.md)
+axedit-accessibility/docs/BACKLOG.md
 
-# Maintainer-only release tooling kept local, not published
+# Maintainer-only release/roadmap tooling kept local, not published
 scrub_pii.py
 pii_tokens.local
 RELEASE.md
+generate_roadmap.py
