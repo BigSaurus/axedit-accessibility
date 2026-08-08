@@ -4,3 +4,10 @@
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Developer-only docs kept local, not published (roadmap/test notes)
+axedit-accessibility/docs/
+axedit-accessibility/TESTING-FM9-FM3.md
+
+# Private PII denylist for scrub_pii.py -- must never be published
+pii_tokens.local
