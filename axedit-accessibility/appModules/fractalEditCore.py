@@ -85,6 +85,9 @@ Navigation / commands
   Enter (on a grid cell)   -- select that block so its parameters load
   Space (on a grid cell)   -- bypass / enable the block, keeping focus
   Enter (on an on/off button) -- toggle it (Space is reserved for block bypass)
+  NVDA+Shift+C (on a grid cell) -- start a cable from this block; press again on
+                   another block to connect its output to that block's input
+                   (Escape, or pressing it on the same block, cancels)
   NVDA+Ctrl+0..9   -- jump straight to row 2, that column (e.g. +5 = the amp)
   NVDA+Shift+A   -- jump to the Amp block
   NVDA+Shift+E   -- jump to the Effects grid (row 0, column 0)
@@ -99,8 +102,9 @@ Navigation / commands
   NVDA+Shift+D   -- save a diagnostic dump of the window to the Desktop
 """
 
-_ADDON_VERSION = "0.8.0"
+_ADDON_VERSION = "0.9.0"
 
+import ctypes
 import json
 import os
 import re
@@ -116,6 +120,7 @@ import NVDAObjects
 import speech
 import ui
 import wx
+from logHandler import log
 from scriptHandler import script
 
 
@@ -151,6 +156,16 @@ def _predicted_toggle_text(cell_name):
     if not m:
         return ""
     return body[:m.start()] + ", " + _STATE_FLIP[m.group(1).lower()]
+
+
+def _cable_block_label(cell_name):
+    """A grid cell's block label with no state suffix, for cable announcements.
+
+    "Grid row 2 column 5: Amp 1A, Active" -> "Amp 1A"
+    "Grid row 0 column 3: Shunt"          -> "Shunt"
+    """
+    body = _GRID_RE.sub("", cell_name or "").strip(" :")
+    return _CELL_STATE_RE.sub("", body).strip()
 
 
 # The routing-graphic RadioButtons that carry no useful identity.
@@ -551,6 +566,13 @@ class _AxeEditGridCell(NVDAObjects.NVDAObject):
             self._REFOCUS_FIRST_MS,
             self.appModule.restore_grid_focus, rc[0], rc[1], 0,
         )
+
+    @script(gesture="kb:escape")
+    def script_gridCancelCable(self, gesture):
+        """Cancel a pending cable with Escape. Only intercepts Escape while a
+        cable is armed; otherwise the app keeps its normal Escape behaviour."""
+        if not self.appModule.cancel_pending_cable():
+            gesture.send()
 
 
 # ── Overlay: routing-graphic noise (jack/cable) ───────────────────────────────
@@ -1081,6 +1103,184 @@ class AppModule(appModuleHandler.AppModule):
                 "on" if self.grid_arrows_enabled else "off"
             )
         )
+
+    # ── Cabling (create connections between blocks) ────────────────────────
+    #
+    # Axe-Edit's routing cables carry no accessible identity, so they can't be
+    # read from the tree -- but connections can still be MADE. Confirmed on
+    # hardware: the grid uses a click-to-connect mode. Clicking a block's output
+    # jack (right edge of the cell) primes the grid and lights up the valid
+    # destinations; clicking a target block's input jack (left edge) then lays
+    # the cable. No mouse drag is involved. The primed state is time-sensitive,
+    # so we gather both endpoints by keyboard first (touching nothing), then fire
+    # the two clicks back-to-back only once the user confirms the target.
+    #
+    # Jack positions come from each cell's real on-screen rectangle. Measured
+    # from live coordinates: the jacks sit in the GUTTERS just OUTSIDE each cell
+    # edge, at mid-height -- the input jack ~11% of the cell width to the left of
+    # the left edge, the output jack ~11% to the right of the right edge (NOT
+    # inside the cell). Using the cell's real width keeps this correct across
+    # window sizes and display scaling. Series, parallel and diagonal routing
+    # all use this same two-click path.
+
+    _cable_source = None          # (row, col, label) of an armed source, or None
+    _CABLE_OUTPUT_X_RATIO = 1.11  # output jack: just past the right edge, in the gutter
+    _CABLE_INPUT_X_RATIO = -0.11  # input jack: just before the left edge, in the gutter
+    _CABLE_PORT_Y_RATIO = 0.5     # jacks sit at the cell's vertical midline
+    _CABLE_STEP_DELAY_MS = 150    # gap between the two clicks (the primed window)
+
+    @script(
+        description="Axe-Edit: Start a cable from this block, or connect to it "
+                    "(press on the source block, then on the target block)",
+        gesture="kb:NVDA+shift+c",
+    )
+    def script_cable(self, gesture):
+        focus = api.getFocusObject()
+        name = (focus.name if focus is not None else "") or ""
+        m = _GRID_RE.match(name)
+        if not m:
+            speech.cancelSpeech()
+            ui.message("Cabling works on the grid. Move to a block first.")
+            return
+        row, col = int(m.group(1)), int(m.group(2))
+        label = _cable_block_label(name) or "block"
+
+        # First press: arm the source (its output jack).
+        if self._cable_source is None:
+            if label.lower() == "empty":
+                ui.message("That cell is empty. Move to a block to start a cable.")
+                return
+            self._cable_source = (row, col, label)
+            speech.cancelSpeech()
+            ui.message(
+                "Cable from {0}. Move to the target block and press the cable "
+                "key again.".format(label)
+            )
+            return
+
+        # Second press: complete to the target (its input jack), or cancel.
+        src_row, src_col, src_label = self._cable_source
+        if (row, col) == (src_row, src_col):
+            self._cable_source = None
+            speech.cancelSpeech()
+            ui.message("Cable cancelled.")
+            return
+        if label.lower() == "empty":
+            ui.message(
+                "Target cell is empty. Move to a block, or press the cable key "
+                "on the source block again to cancel."
+            )
+            return
+
+        self._cable_source = None
+        speech.cancelSpeech()
+        if self._make_cable(src_row, src_col, row, col):
+            ui.message("Connected {0} to {1}.".format(src_label, label))
+            # The synthesized clicks drop keyboard focus; put it back on the
+            # target block quietly so the user stays oriented. The "Connected"
+            # message is already out, and the grid-suppress window (set in
+            # _make_cable) keeps this restore from speaking over it.
+            self._last_grid_prog_move = time.time()
+            wx.CallLater(120, self.restore_grid_focus, row, col, 0)
+        else:
+            ui.message(
+                "Could not cable to {0}: block position unavailable.".format(label)
+            )
+
+    def cancel_pending_cable(self):
+        """Cancel an armed cable if one is pending. Returns True if it was."""
+        if self._cable_source is not None:
+            self._cable_source = None
+            speech.cancelSpeech()
+            ui.message("Cable cancelled.")
+            return True
+        return False
+
+    def _cable_point(self, cell, x_ratio):
+        """The (x, y) of a jack on ``cell``, from its real on-screen rect."""
+        loc = cell.location if cell is not None else None
+        if not loc:
+            return None
+        return (
+            loc.left + round(loc.width * x_ratio),
+            loc.top + round(loc.height * self._CABLE_PORT_Y_RATIO),
+        )
+
+    def _make_cable(self, src_row, src_col, tgt_row, tgt_col):
+        """Lay a cable from the source block's output to the target's input by
+        clicking the two jacks back-to-back.
+
+        Returns True if the clicks were issued. It is not a guarantee the cable
+        took -- Axe-Edit's cables can't be read back -- so the caller speaks the
+        intended connection as the confirmation.
+        """
+        src = self.grid_cell(src_row, src_col)
+        tgt = self.grid_cell(tgt_row, tgt_col)
+        out_pt = self._cable_point(src, self._CABLE_OUTPUT_X_RATIO)
+        in_pt = self._cable_point(tgt, self._CABLE_INPUT_X_RATIO)
+        if out_pt is None or in_pt is None:
+            return False
+        log.info(
+            "axedit cable: src(%d,%d)->tgt(%d,%d) out=%s in=%s "
+            "src_rect=%s tgt_rect=%s"
+            % (
+                src_row, src_col, tgt_row, tgt_col, out_pt, in_pt,
+                self._rect_tuple(src), self._rect_tuple(tgt),
+            )
+        )
+        # The synthesized clicks churn focus/name/state on the grid; open the
+        # existing suppression windows so that churn can't cut off the spoken
+        # confirmation or leak stale events.
+        now = time.time()
+        self._last_grid_prog_move = now
+        self._last_bypass_time = now
+        # Both clicks TIGHT and uninterrupted: the grid's primed routing state
+        # drops if too long passes between them, and a deferred (wx.CallLater)
+        # second click waits behind whatever NVDA is doing -- e.g. speaking the
+        # jack under the mouse -- which stretched the gap past that window. We
+        # cancel speech and click both jacks synchronously so nothing slips in.
+        speech.cancelSpeech()
+        self._click_point(*out_pt)
+        time.sleep(self._CABLE_STEP_DELAY_MS / 1000.0)
+        self._click_point(*in_pt)
+        return True
+
+    @staticmethod
+    def _rect_tuple(cell):
+        loc = cell.location if cell is not None else None
+        return (loc.left, loc.top, loc.width, loc.height) if loc else None
+
+    # Mouse-event flags for the absolute-coordinate click below.
+    _MOUSEEVENTF_MOVE = 0x0001
+    _MOUSEEVENTF_LEFTDOWN = 0x0002
+    _MOUSEEVENTF_LEFTUP = 0x0004
+    _MOUSEEVENTF_ABSOLUTE = 0x8000
+
+    @classmethod
+    def _click_point(cls, x, y):
+        """A single synthesized left click at screen point (x, y).
+
+        The coordinates are baked into each mouse event as ABSOLUTE values
+        (normalised 0..65535 over the primary screen). NVDA's default helper
+        sends a position-less down/up and relies on the cursor already being
+        parked there; JUCE's grid appears to read the coordinates off the event,
+        so a position-less click aimed perfectly can still do nothing -- the
+        absolute-coordinate form is what actually registers here. Small gaps let
+        the move settle and the press register.
+        """
+        x, y = int(round(x)), int(round(y))
+        user32 = ctypes.windll.user32
+        sw = user32.GetSystemMetrics(0) or 1  # SM_CXSCREEN
+        sh = user32.GetSystemMetrics(1) or 1  # SM_CYSCREEN
+        ax = (65536 * x) // sw + 1
+        ay = (65536 * y) // sh + 1
+        user32.SetCursorPos(x, y)
+        time.sleep(0.05)
+        user32.mouse_event(cls._MOUSEEVENTF_MOVE | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
+        time.sleep(0.02)
+        user32.mouse_event(cls._MOUSEEVENTF_LEFTDOWN | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
+        time.sleep(0.03)
+        user32.mouse_event(cls._MOUSEEVENTF_LEFTUP | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
 
     # ── Top menu bar (Alt+letter opens each menu) ──────────────────────────
 

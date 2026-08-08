@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0
+- **Create cables between blocks from the keyboard.** Axe-Edit's routing was
+  entirely mouse-driven, so building or fixing signal connections was out of
+  reach. Now press **NVDA+Shift+C** on a block to start a cable from its output,
+  move to another block, and press it again to connect to that block's input.
+  Series, parallel and diagonal routing all work through this. Press it again on
+  the same block, or press Escape, to cancel. Because Axe-Edit's cables carry no
+  accessible identity, the connection is confirmed by speaking it ("Connected
+  Drive 1 to Amp 1") rather than by reading it back; reading what's *already*
+  wired is not yet possible and is planned as separate work.
+
 ## 0.8.0
 - **Open the top menus from the keyboard.** The Preset, Block, Tools, Settings
   and Help menus are mouse-only in Axe-Edit; they now open with **Alt+P**,

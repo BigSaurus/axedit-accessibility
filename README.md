@@ -29,6 +29,9 @@ keyboard.
   suppressed.
 - **Fast 2D grid navigation** — arrows, Home/End, Enter-to-select, and
   number-key jumps to any column on the main row.
+- **Create cables from the keyboard** — connect one block's output to another
+  block's input (series, parallel and diagonal) with **NVDA+Shift+C** on the
+  source block, then again on the target. No mouse drag.
 
 ## Keyboard commands
 
@@ -39,6 +42,7 @@ keyboard.
 | Home / End | First / last column of the row |
 | Enter | Select the block so its parameters load |
 | Space | Bypass / enable the block, keeping focus |
+| NVDA+Shift+C | Start a cable from this block; press again on another block to connect its output to that block's input. Press on the same block, or Escape, to cancel |
 
 ### On an on/off button (Bypass, Scene Ignore, Channel A–D, scenes)
 | Key | Action |
@@ -94,6 +98,10 @@ file that lands on your Desktop along with a note on what did and didn't work.
 That dump is enough to confirm support and fix whatever is off.
 
 ## Known limitations
+- Cables can be **created** (NVDA+Shift+C) but not yet **read back** — Axe-Edit's
+  cables carry no accessible identity, so the add-on can't tell you what is
+  already wired, and it confirms a new cable by speaking the intended connection
+  rather than by reading it. Reading existing routing is planned separately.
 - Number-key column jumps target row 2 (Axe-Edit's default chain row); use
   arrows for other rows.
 - The right-click "add block" menu is exposed only via IAccessible2 and is not

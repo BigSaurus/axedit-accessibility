@@ -50,3 +50,24 @@ identity. The old filter only skipped *unnamed* structural controls, so all
 object nav / review cursor) and the app module swallows their focus event.
 Toggle with **NVDA+Shift+J** if a live session shows any are actually needed
 for routing.
+
+## Cabling — how connections get made (verified 2026-08-08)
+The jack/cable controls carry no *identity*, but they DO have on-screen
+locations, and that is enough to *create* connections (reading existing routing
+still isn't possible from the tree). Three facts, all confirmed live:
+
+- **Jacks sit in the gutters, just OUTSIDE each cell edge**, at mid-height. From
+  real coordinates: the input jack is ≈ `x = -0.11 × cellWidth` (left of the
+  left edge) and the output jack ≈ `x = +1.11 × cellWidth` (right of the right
+  edge), both at `y = 0.5`. Computing from each cell's real rectangle keeps this
+  correct across window sizes. Clicking *inside* the cell (e.g. x0.1/x0.9) misses
+  the jack entirely.
+- **A connection is two clicks, no drag:** click the source block's output jack
+  (the grid primes and shows valid destinations), then the target block's input
+  jack. Fan-out from an already-wired output is allowed.
+- **The clicks must be synthesized with ABSOLUTE coordinates** baked into each
+  mouse event (`SetCursorPos` + `mouse_event` with `MOUSEEVENTF_ABSOLUTE`). A
+  position-less click (NVDA's default `executeMouseEvent`) lands nowhere useful —
+  the JUCE grid reads the coordinates off the event. The two clicks must also be
+  tight and uninterrupted (~150 ms apart, done synchronously), or the primed
+  state lapses. This is `NVDA+Shift+C` in the app module.
