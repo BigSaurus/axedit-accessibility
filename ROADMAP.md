@@ -10,14 +10,9 @@ Each item below links to a GitHub issue where the work happens. Items under
 
 <!-- BEGIN AUTO (generated from open issues; do not edit by hand) -->
 
-## Known issues
-- **NVDA+Shift+F lands on the wrong control in the Cab block** — #2
-
 ## Good first issues
 - **Announce preset number and name when the preset changes** — #3
-- **Open a block's right-click menu from the keyboard** — #4
 - **Keyboard shortcuts for Import / Export Preset** — #5
-- **Command to speak the current effects chain** — #6
 
 ## Planned / help wanted
 - **FM3-edit and FM9-edit support** — #1
