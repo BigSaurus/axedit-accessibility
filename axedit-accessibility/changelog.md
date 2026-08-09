@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0
+- **Preset changes are announced.** Change preset with **Ctrl+PageUp /
+  Ctrl+PageDown** and NVDA now speaks the new preset's number and name (e.g.
+  "Preset 10, Recto 2") instead of leaving you to check it manually.
+- **Hear the whole effect chain.** **NVDA+Shift+O** speaks the placed blocks in
+  estimated signal order, each with its bypass state. (Order is an estimate --
+  diagonal cabling can't be read back -- so it's spoken as such.)
+- **Summarise a block's settings.** **NVDA+Shift+B** reads the parameters shown
+  for the selected block and their values at a glance (e.g. "Amp 1A: Gain 5.0,
+  Bass 4.5, Mid 6.0 ..."), instead of arrowing through them one by one. Pair it
+  with the page commands below to summarise a specific page.
+- **Move between a block's parameter pages from the keyboard.** **NVDA+Shift+
+  PageDown / PageUp** step through the pages (Tone, Preamp, Speaker, ...), speak
+  the page you land on, and put focus on that page's first control so you can
+  start editing straight away. The pages are also exposed as tabs.
+- **Open a block's right-click menu without the mouse.** With a grid cell
+  focused, the **Applications key** pops that block's context menu right there.
+- **Jump-to-first-parameter lands correctly in the Cab block.** **NVDA+Shift+F**
+  was landing on the wrong control in the Cab block's multi-column layout (Legacy
+  and DynaCab); it now goes to the block's genuine first control.
+
 ## 0.9.0
 - **Create cables between blocks from the keyboard.** Axe-Edit's routing was
   entirely mouse-driven, so building or fixing signal connections was out of

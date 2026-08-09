@@ -32,6 +32,18 @@ keyboard.
 - **Create cables from the keyboard** — connect one block's output to another
   block's input (series, parallel and diagonal) with **NVDA+Shift+C** on the
   source block, then again on the target. No mouse drag.
+- **Preset changes announced** — changing preset with **Ctrl+PageUp/PageDown**
+  speaks the new preset's number and name.
+- **Effect-chain and block summaries** — **NVDA+Shift+O** speaks the whole chain
+  in estimated order; **NVDA+Shift+B** summarises the selected block's parameter
+  values at a glance.
+- **Parameter pages by keyboard** — **NVDA+Shift+PageDown/PageUp** move between a
+  block's pages (Tone, Preamp, Speaker …), announce the page, and land you on its
+  first control.
+- **Block context menu from the keyboard** — the **Applications key** opens the
+  focused block's right-click menu, with no mouse aiming.
+- **Correct first-parameter jump in the Cab block** — **NVDA+Shift+F** now lands
+  on the Cab block's genuine first control (both Legacy and DynaCab layouts).
 
 ## Keyboard commands
 
@@ -42,6 +54,7 @@ keyboard.
 | Home / End | First / last column of the row |
 | Enter | Select the block so its parameters load |
 | Space | Bypass / enable the block, keeping focus |
+| Applications key | Open this block's right-click menu at the focused cell |
 | NVDA+Shift+C | Start a cable from this block; press again on another block to connect its output to that block's input. Press on the same block, or Escape, to cancel |
 
 ### On an on/off button (Bypass, Scene Ignore, Channel A–D, scenes)
@@ -59,6 +72,10 @@ keyboard.
 | NVDA+Shift+F | First parameter of the current block |
 | NVDA+Shift+P | Preset selector |
 | NVDA+Shift+S | Scene selector |
+| NVDA+Shift+PageDown / PageUp | Next / previous parameter page; lands on its first control |
+| Ctrl+PageUp / PageDown | Change preset (Axe-Edit); the new preset number and name are announced |
+| NVDA+Shift+O | Speak the effect chain in estimated order |
+| NVDA+Shift+B | Summarise the selected block's parameters (the shown page) |
 | NVDA+Shift+I | Announce full info about the focused control |
 | NVDA+Shift+G | Toggle 2D grid navigation (default on) |
 | NVDA+Shift+J | Toggle jack/cable noise suppression (default on) |

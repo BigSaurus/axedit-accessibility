@@ -78,12 +78,41 @@ Fixes applied
    background. We do NOT re-read the name afterwards -- doing so interrupted the
    announcement and read the stale, pre-toggle state.
 
+7. The preset number and name (both EditControls whose value lives in the
+   name) change together whenever the preset does. JUCE does NOT fire a usable
+   change event on those fields (confirmed live), so we re-read and speak them
+   ("Preset 10, Deluxe Verb") a moment after the Ctrl+PageUp / Ctrl+PageDown
+   preset-change keystrokes. (The Next/Previous Preset buttons and MIDI program
+   changes have no keystroke to hook and are not yet covered.)
+
+8. The grid cell's right-click menu is mouse-driven; the Applications key
+   normally sends WM_CONTEXTMENU, which JUCE's grid ignores, so opening a
+   block's menu required hand-positioning the mouse over it and
+   right-clicking. Solution: bind the Applications key to a synthesized right
+   click at the focused cell's own on-screen centre, reusing the same
+   ABSOLUTE-coordinate technique the cabling feature (NVDA+Shift+C) needed to
+   get JUCE to notice a click at all. Unlike the cabling and bypass paths,
+   focus is deliberately NOT restored to the cell afterwards -- a native
+   popup menu is about to claim focus of its own accord, and pulling focus
+   back would fight it for that focus and could close the menu.
+
+9. The parameter panel's PAGE tabs (Tone, Preamp, Speaker, ...) are a vertical
+   column of plain static-text labels: no tab role, no selected state, and the
+   value only echoes the name, so which page is current is not in the tree (only
+   a colour highlight) and JUCE fires no change event. So, like the sliders, we
+   drive and announce it ourselves: keep our own cursor into the discovered
+   column, click the target tab (absolute synth click -- the only thing these
+   custom widgets honour) and speak its name. The tabs are also overlaid as
+   first-class TABs so object navigation reaches them and Enter selects one.
+
 Navigation / commands
 ----------------------
   Arrows (on a grid cell)  -- move between grid cells, 2D (toggle: NVDA+Shift+G)
   Home / End (on a grid cell) -- jump to the first / last column of the row
   Enter (on a grid cell)   -- select that block so its parameters load
   Space (on a grid cell)   -- bypass / enable the block, keeping focus
+  Applications key (on a grid cell) -- open this block's right-click menu at
+                   the focused cell, without hand-positioning the mouse
   Enter (on an on/off button) -- toggle it (Space is reserved for block bypass)
   NVDA+Shift+C (on a grid cell) -- start a cable from this block; press again on
                    another block to connect its output to that block's input
@@ -94,15 +123,19 @@ Navigation / commands
   NVDA+Shift+F   -- jump to the first parameter of the current block
   NVDA+Shift+P   -- jump to the Preset selector
   NVDA+Shift+S   -- jump to the Scene selector
+  NVDA+Shift+PageDown / PageUp -- next / previous parameter page (Tone,
+                   Preamp, Speaker, ...); Enter on a page tab also selects it
   Alt+P/B/T/S/H  -- open the Preset / Block / Tools / Settings / Help menu
   NVDA+Shift+I   -- announce full info about the focused control
+  NVDA+Shift+O   -- speak the current effect chain, left to right (estimated)
+  NVDA+Shift+B   -- summarise the selected block's parameters (the shown page)
   NVDA+Shift+J   -- toggle jack/cable noise suppression (default: on)
   NVDA+Shift+G   -- toggle 2D arrow-key grid navigation (default: on)
   NVDA+Shift+Space -- activate the focused control (for mouse-only items)
   NVDA+Shift+D   -- save a diagnostic dump of the window to the Desktop
 """
 
-_ADDON_VERSION = "0.9.0"
+_ADDON_VERSION = "0.10.0"
 
 import ctypes
 import json
@@ -168,11 +201,51 @@ def _cable_block_label(cell_name):
     return _CELL_STATE_RE.sub("", body).strip()
 
 
+def _block_summary(cell_name):
+    """A grid cell's block label plus its spoken bypass state.
+
+    "Grid row 2 column 5: Amp 1A, Active"    -> "Amp 1A active"
+    "Grid row 2 column 8: Delay 1, Bypassed" -> "Delay 1 bypassed"
+    "Grid row 0 column 3: Shunt"             -> "Shunt"  (no bypass state)
+    "Grid row 0 column 0: Empty"             -> "Empty"
+    Returns "" if the name is not a grid cell.
+    """
+    if not _GRID_RE.match(cell_name or ""):
+        return ""
+    label = _cable_block_label(cell_name)
+    body = _GRID_RE.sub("", cell_name or "").strip(" :")
+    m = _CELL_STATE_RE.search(body)
+    if not m:
+        return label
+    return "{0} {1}".format(label, m.group(1).lower())
+
+
+def _is_placed_block(label):
+    """True for a real, placed block -- excludes empty cells and shunts."""
+    return bool(label) and label.strip().lower() not in ("empty", "shunt")
+
+
 # The routing-graphic RadioButtons that carry no useful identity.
 _NOISE_NAMES = frozenset({"jackcomponent", "cablecomponent"})
 
+# R7: interactive roles a Setup-panel control might use besides ComboBox and
+# Slider (both handled separately in chooseNVDAObjectOverlayClasses). Kept to
+# roles a user can actually land on, so an unnamed decorative pane never
+# picks up a spoken label it never had before.
+_SETUP_LABELLABLE_ROLES = frozenset({
+    controlTypes.Role.EDITABLETEXT,
+    controlTypes.Role.BUTTON,
+    controlTypes.Role.CHECKBOX,
+    controlTypes.Role.RADIOBUTTON,
+    controlTypes.Role.SPINBUTTON,
+})
+
 # Slider names trail a modifier hint we don't want on every keystroke.
 _MODIFIER_TRAILER_RE = re.compile(r",\s*Modifier (Disabled|Enabled)\s*$", re.IGNORECASE)
+
+# The preset number/name EditControls: "Preset Number: 0010", "Preset Name: Deluxe Verb".
+# One pattern matches both fields, so one overlay class and one tree-walk finds them.
+_PRESET_FIELD_RE = re.compile(r"^Preset (?P<field>Number|Name):\s*(?P<value>.*)$", re.IGNORECASE)
 
 
 def _clean_value_name(name):
@@ -187,6 +260,28 @@ def _clean_value_name(name):
     if name.startswith(":"):
         name = name[1:].strip()
     return name
+
+
+# The Cab block's LIBRARY value field has no name pattern of its own to match
+# -- unlike the sliders/combos above, its value is not folded into its name
+# with a label or a colon, and it can be blank when nothing is loaded. It is
+# matched instead by position: a plain-text control sitting right after a
+# plain-text sibling captioned "LIBRARY".
+_CAB_LIBRARY_CAPTION = "library"
+
+
+def _is_cab_library_value(obj):
+    """True for the plain-text control that follows the "LIBRARY" caption."""
+    try:
+        prev = obj.previous
+    except Exception:
+        return False
+    if prev is None:
+        return False
+    try:
+        return (prev.name or "").strip().lower() == _CAB_LIBRARY_CAPTION
+    except Exception:
+        return False
 
 
 def _invoke_control(obj, allow_mouse=True):
@@ -298,6 +393,84 @@ class _AxeEditSlider(_AnnounceAfterArrow):
 
 class _AxeEditComboBox(_AnnounceAfterArrow):
     """Amp/effect model + config combo boxes: value is in the name."""
+
+
+class _AxeEditCabLibraryValue(_AnnounceAfterArrow):
+    """
+    The Cab block's LIBRARY value field: a plain-text control, not a combo
+    box, identified by ``_is_cab_library_value`` rather than a role or name
+    pattern (see there). Its text is the current selection and can be blank
+    when nothing is loaded.
+
+    No overrides needed beyond a blank-value fallback: it inherits the same
+    intercept-arrow-then-re-read behaviour the sliders and combos above use,
+    and ``_clean_value_name`` is a harmless no-op on text with no "Modifier
+    Disabled" trailer or leading colon to strip.
+    """
+
+    def _get_name(self):
+        # A blank value would otherwise be silent both on first Tab-in and
+        # after every arrow press, which is the exact bug this fix exists
+        # for. Say something concrete instead of nothing.
+        cleaned = _clean_value_name(super()._get_name())
+        return cleaned if cleaned else "Library: none selected"
+
+
+# ── Overlay: parameter-panel page tabs (Tone, Preamp, Speaker, ...) ───────────
+
+class _AxeEditPageTab(NVDAObjects.NVDAObject):
+    """
+    A parameter-panel PAGE tab, e.g. "Tone", "Preamp", "Power Amp", "Speaker",
+    "Dynamics".
+
+    In the tree these are plain static text (role STATICTEXT) with no tab role
+    and no selected state -- so by default they are inert and easy to miss, and
+    which one is active is not exposed at all. This overlay makes them
+    first-class: it reports the control as a TAB (so object navigation says
+    "Tone  tab"), and Enter selects that page. Selection is a synthesised
+    ABSOLUTE-coordinate click -- the only thing these custom JUCE widgets honour
+    (same finding as cabling / the right-click menu) -- followed by speaking the
+    page name.
+    """
+
+    def _get_role(self):
+        return controlTypes.Role.TAB
+
+    @script(gesture="kb:enter")
+    def script_selectPage(self, gesture):
+        name = (self.name or "").strip()
+        loc = self.location
+        speech.cancelSpeech()
+        if loc:
+            self.appModule._click_point(
+                loc.left + loc.width // 2, loc.top + loc.height // 2
+            )
+        # Keep the app module's page cursor in sync with a direct pick, so the
+        # next NVDA+shift+pageDown/pageUp continues from here.
+        try:
+            names = list(self.appModule._page_names)
+            if name in names:
+                self.appModule._page_index = names.index(name)
+        except Exception:
+            pass
+        ui.message(name or "Page")
+
+
+# ── Overlay: preset number / name fields (announce on any change) ─────────────
+
+class _AxeEditPresetField(NVDAObjects.NVDAObject):
+    """
+    One of the two preset EditControls: "Preset Number: 0010" or
+    "Preset Name: Deluxe Verb". Both update together whenever the preset
+    changes -- via the keyboard, the Next/Previous Preset buttons, or a
+    change that arrives from outside the app entirely, with no keystroke to
+    intercept. Unlike the sliders/combos above, JUCE does fire a nameChange
+    event on these two controls, so we listen for it directly; that one hook
+    then covers every way the preset can change.
+    """
+
+    def event_nameChange(self):
+        self.appModule._onPresetFieldChanged(self)
 
 
 # ── Overlay: on/off toggle buttons (Bypass, Scene, Channel A-D) ───────────────
@@ -574,6 +747,51 @@ class _AxeEditGridCell(NVDAObjects.NVDAObject):
         if not self.appModule.cancel_pending_cable():
             gesture.send()
 
+    @script(
+        description="Axe-Edit: Open this block's right-click menu",
+        gesture="kb:applications",
+    )
+    def script_gridContextMenu(self, gesture):
+        """Pop this block's right-click menu at the focused cell.
+
+        JUCE's grid cell is mouse-driven for its context menu and ignores the
+        Applications key's default WM_CONTEXTMENU, so without this the user
+        has to hand-position the mouse over the block and right-click.
+        We already have the cell's real on-screen rectangle -- the same one
+        the cabling feature reads -- so we reuse it at dead centre (not a
+        jack) and fire a synthesized right click there with
+        ``_right_click_point``, the same ABSOLUTE-coordinate technique the
+        cabling feature needed to get JUCE to notice a click at all.
+
+        A synthesized click drops keyboard focus (confirmed by the cabling
+        feature). Here that is the wanted outcome: a native popup menu is
+        about to claim focus of its own accord, and calling setFocus back
+        onto the grid cell afterwards -- the way the cable/bypass paths do --
+        would fight the menu for focus and could close it. So, unlike those
+        paths, nothing here restores focus to the cell; whatever the popup
+        menu does with focus is left alone. Whether the popup is then
+        navigable with NVDA's arrows is a live observation, not something
+        this script can guarantee -- see the add-on's live-test notes.
+        """
+        point = self.appModule._cable_point(self, 0.5)
+        if point is None:
+            gesture.send()
+            return
+        label = _cable_block_label(self.name)
+        # Suppress this cell's own stale name/state churn (not the general
+        # focus-swallow window -- we want the popup menu's own focus event,
+        # if JUCE fires one, to reach the user).
+        self.appModule._last_grid_prog_move = time.time()
+        speech.cancelSpeech()
+        # Spoken before the click because popping the JUCE menu takes a moment;
+        # this is the "working on it" cue so the pause isn't mistaken for a
+        # dead key.
+        ui.message(
+            "{0} context menu, opening".format(label)
+            if label else "Context menu opening"
+        )
+        self.appModule._right_click_point(*point)
+
 
 # ── Overlay: routing-graphic noise (jack/cable) ───────────────────────────────
 
@@ -589,6 +807,41 @@ class _AxeEditNoise(NVDAObjects.NVDAObject):
         if getattr(self.appModule, "suppress_noise", True):
             return self.presType_layout
         return super()._get_presentationType()
+
+
+# ── Overlay: Setup-panel controls with no name of their own (R7) ──────────────
+
+class _AxeEditSetupField(NVDAObjects.NVDAObject):
+    """
+    A control inside the Setup panel (Config / Audio / Input Levels / Scales
+    / Out N EQ / MIDI-Remote / Global -- whichever section is currently
+    showing) whose own accessible name is empty: the classic unlabelled
+    combo/edit shape, where the visible field label is a separate StaticText
+    sitting next to the control rather than wired to it.
+
+    Confirmed on a live capture: the "Device Name" edit box reports an empty
+    name, with a StaticText reading "Device Name" sitting directly below it,
+    same column. The label is recovered spatially at speak-time (see
+    AppModule._setup_field_label) rather than baked in here, so it keeps
+    working if the field moves (a resize, a DPI change, a different section
+    laid out differently). If no qualifying label is ever found, this falls
+    back to whatever NVDA already says for the bare control, so it can never
+    make a control less accessible than it already was.
+    """
+
+    def _get_name(self):
+        label = self.appModule._setup_field_label(self)
+        return label or super()._get_name()
+
+
+class _AxeEditSetupCombo(_AxeEditSetupField, _AxeEditComboBox):
+    """
+    A Setup-panel ComboBox with no name of its own: the same spatial-label
+    fix as _AxeEditSetupField, stacked on top of the arrow-key value-announce
+    every other Fractal combo box already gets (see _AxeEditComboBox). Named
+    Setup combos, and every combo box in the main editor window, are
+    unaffected -- they keep using plain _AxeEditComboBox.
+    """
 
 
 # ── App Module ────────────────────────────────────────────────────────────────
@@ -614,6 +867,24 @@ class AppModule(appModuleHandler.AppModule):
     # (not just the grid cell) so the announcement is not cut off.
     _last_bypass_time = 0.0
     _BYPASS_SUPPRESS_S = 1.1
+
+    # Preset-change announcement: the number and name fields update together,
+    # so a short debounce coalesces both nameChange events into one message,
+    # and the last message is remembered so a repeat of the same text (e.g.
+    # both fields settling on their final value a moment apart) isn't spoken
+    # twice.
+    _preset_change_timer = None
+    _PRESET_DEBOUNCE_MS = 200
+    _last_preset_announcement = ""
+
+    # Keyboard re-read fallback, ENABLED: live testing (2026-08-09) showed JUCE
+    # does NOT fire nameChange on the preset fields, so the event hook never
+    # spoke. Instead we re-read the preset fields a moment after the known
+    # preset-change keystrokes (Ctrl+PageUp/PageDown). The keystroke is always
+    # passed through to the app either way; this just adds the announcement.
+    # (Does not cover the Next/Previous Preset buttons or a MIDI program change,
+    # which have no keystroke to hook -- tracked as follow-up.)
+    _preset_fallback_enabled = True
 
     # Measured from the running app when the index is built (see
     # _build_grid_index). These are only the starting fallback.
@@ -648,11 +919,164 @@ class AppModule(appModuleHandler.AppModule):
             clsList.insert(0, _AxeEditToggleButton)
             return
 
+        # Preset number/name fields, identified by name pattern like the
+        # controls above -- both are plain EditControls otherwise.
+        if _PRESET_FIELD_RE.match(name):
+            clsList.insert(0, _AxeEditPresetField)
+            return
+
+        # Parameter-panel page tabs (Tone, Preamp, Speaker, ...). They are plain
+        # static text, so match by role + membership in the discovered page
+        # column (populated by get_page_tabs, called from the page-nav commands).
+        # The left-edge check disambiguates them from any other label that
+        # happens to share a page name. Dormant until the column has been
+        # discovered once (a page command runs).
+        if (
+            obj.role == controlTypes.Role.STATICTEXT
+            and name.strip() in self._page_name_set
+            and self._is_at_page_left(obj)
+        ):
+            clsList.insert(0, _AxeEditPageTab)
+            return
+
         role = obj.role
         if role == controlTypes.Role.COMBOBOX:
             clsList.insert(0, _AxeEditComboBox)
+            return
         elif role == controlTypes.Role.SLIDER:
             clsList.insert(0, _AxeEditSlider)
+            return
+
+        # NOTE: R3 (Cab IR/Library selector) and R7 (Setup-window control
+        # labelling) are TEMPORARILY DISABLED here. Both matched their target by
+        # walking the UIA tree from inside overlay assignment
+        # (_is_cab_library_value reads obj.previous; _is_setup_control walks the
+        # whole foreground window). Because navigating the tree re-creates
+        # objects, which re-enters chooseNVDAObjectOverlayClasses, this cascaded
+        # on the static-text-heavy Cab parameter panel and hung NVDA. They will
+        # be re-added with a re-entrancy-safe detection that does no tree walk in
+        # this method (e.g. lazy label lookup in _get_name on the focused object
+        # only). Their overlay classes and helpers remain defined but unassigned.
+
+    # ── Setup-panel control labelling (R7) ──────────────────────────────────
+    #
+    # The Setup panel is not a separate top-level window -- JUCE swaps it in
+    # as one large pane below the effects grid, and it reports the very same
+    # windowClassName as everything else, so window class can't identify it.
+    # What DOES identify it: it is the one container whose children include a
+    # StaticText named "Config" (the left-hand section list's first entry,
+    # present -- unchanged -- no matter which section is showing). That
+    # container is located fresh on each call rather than cached: the only
+    # callers are already rare (a genuinely nameless interactive control), so
+    # a full tree walk on those rare occasions is cheap.
+
+    _SETUP_NAV_ANCHOR = "config"
+
+    def _find_setup_panel(self, obj, depth=0):
+        """The Setup panel container, or None if Setup is not open."""
+        if depth > 30:
+            return None
+        try:
+            if (
+                obj.role == controlTypes.Role.STATICTEXT
+                and (obj.name or "").strip().lower() == self._SETUP_NAV_ANCHOR
+            ):
+                parent = obj.parent
+                if parent is not None:
+                    return parent
+        except Exception:
+            pass
+        child = obj.firstChild
+        while child:
+            found = self._find_setup_panel(child, depth + 1)
+            if found is not None:
+                return found
+            child = child.next
+        return None
+
+    def _is_setup_control(self, obj):
+        """True if obj's on-screen rectangle falls inside the Setup panel."""
+        try:
+            loc = obj.location
+        except Exception:
+            loc = None
+        if not loc:
+            return False
+        root = api.getForegroundObject()
+        if root is None:
+            return False
+        panel = self._find_setup_panel(root)
+        if panel is None:
+            return False
+        prect = panel.location
+        if not prect:
+            return False
+        return (
+            loc.left >= prect.left - 2
+            and loc.top >= prect.top - 2
+            and (loc.left + loc.width) <= (prect.left + prect.width) + 2
+            and (loc.top + loc.height) <= (prect.top + prect.height) + 2
+        )
+
+    def _setup_field_label(self, obj):
+        """The best-guess field label for an unnamed Setup control: the
+        nearest StaticText that visually labels it, found by walking the
+        Setup panel's other children and comparing on-screen rectangles.
+
+        A field's label sits BELOW its control, sharing (most of) its
+        horizontal span. Candidates are ranked by: sharing any horizontal
+        span with the control first, then by being below it (not above/beside)
+        second, then by vertical gap, then by how centred it is -- so a
+        below/same-column label wins whenever one exists, but a section laid
+        out differently still gets its nearest candidate rather than nothing.
+        """
+        if not self._is_setup_control(obj):
+            return ""
+        try:
+            loc = obj.location
+        except Exception:
+            loc = None
+        if not loc:
+            return ""
+        root = api.getForegroundObject()
+        panel = self._find_setup_panel(root) if root is not None else None
+        if panel is None:
+            return ""
+        candidates = []
+        self._collect_setup_labels(panel, candidates, depth=0)
+        if not candidates:
+            return ""
+        cx = loc.left + loc.width / 2.0
+
+        def score(node):
+            nloc = node.location
+            left = max(loc.left, nloc.left)
+            right = min(loc.left + loc.width, nloc.left + nloc.width)
+            overlap = max(0, right - left)
+            ncx = nloc.left + nloc.width / 2.0
+            vgap = nloc.top - (loc.top + loc.height)  # > 0 -> label is below
+            return (
+                0 if overlap > 0 else 1,
+                0 if vgap >= -2 else 1,
+                abs(vgap),
+                abs(ncx - cx),
+            )
+
+        best = min(candidates, key=score)
+        return (best.name or "").strip().replace("\n", " ")
+
+    def _collect_setup_labels(self, obj, out, depth):
+        if depth > 30:
+            return
+        try:
+            if obj.role == controlTypes.Role.STATICTEXT and (obj.name or "").strip():
+                out.append(obj)
+        except Exception:
+            pass
+        child = obj.firstChild
+        while child:
+            self._collect_setup_labels(child, out, depth + 1)
+            child = child.next
 
     # ── Focus events ──────────────────────────────────────────────────────
 
@@ -667,6 +1091,14 @@ class AppModule(appModuleHandler.AppModule):
         # steal focus; we already spoke the result, so swallow that churn (any
         # control) for the bypass window. restore_grid_focus pulls focus back.
         if self._in_bypass_window():
+            return
+
+        # During a parameter-page switch we click the tab (which transiently
+        # lands focus on other controls, e.g. the channel buttons) and then
+        # focus the page's first parameter ourselves, announcing it. Swallow the
+        # transient focus churn in that short window so only our announcement is
+        # heard.
+        if (time.time() - self._page_switch_time) < self._PAGE_SWITCH_SUPPRESS_S:
             return
 
         # During our own grid navigation we announce concisely ourselves, so
@@ -754,6 +1186,81 @@ class AppModule(appModuleHandler.AppModule):
         if self._in_bypass_window() or self._in_grid_suppress_window(obj):
             return
         nextHandler()
+
+    # ── Preset change announcement ──────────────────────────────────────────
+
+    def _onPresetFieldChanged(self, obj):
+        """The preset-number or preset-name field's text just changed.
+
+        Both fields update together whenever the preset changes, so debounce
+        instead of announcing on the first event -- that coalesces the pair
+        into a single "Preset 10, Deluxe Verb" message rather than two.
+        """
+        if self._preset_change_timer and self._preset_change_timer.IsRunning():
+            self._preset_change_timer.Stop()
+        self._preset_change_timer = wx.CallLater(
+            self._PRESET_DEBOUNCE_MS, self._announcePresetChange,
+        )
+
+    def _announcePresetChange(self):
+        self._preset_change_timer = None
+        root = api.getForegroundObject()
+        if root is None:
+            return
+        fields = {}
+        self._collect_preset_fields(root, fields, depth=0)
+        number = fields.get("number", "")
+        name = fields.get("name", "")
+        if not number and not name:
+            return
+        parts = []
+        if number:
+            # Leading zeros ("0010") read oddly digit-by-digit; a plain count
+            # reads naturally and still identifies the same preset.
+            parts.append("Preset {0}".format(number.lstrip("0") or "0"))
+        if name:
+            parts.append(name)
+        text = ", ".join(parts)
+        if not text or text == self._last_preset_announcement:
+            return
+        self._last_preset_announcement = text
+        speech.cancelSpeech()
+        ui.message(text)
+
+    def _collect_preset_fields(self, obj, out, depth):
+        """Find the current text of the preset-number and preset-name fields,
+        read fresh from the tree -- a change is exactly what we're reacting
+        to, so nothing here is cached."""
+        if depth > 30 or len(out) >= 2:
+            return
+        m = _PRESET_FIELD_RE.match(obj.name or "")
+        if m:
+            out[m.group("field").lower()] = m.group("value").strip()
+            if len(out) >= 2:
+                return
+        child = obj.firstChild
+        while child:
+            self._collect_preset_fields(child, out, depth + 1)
+            if len(out) >= 2:
+                return
+            child = child.next
+
+    # Guarded fallback (default OFF -- see _preset_fallback_enabled above).
+    # Ctrl+PageUp/PageDown already work normally in Axe-Edit for preset
+    # navigation; we only ever pass them through, optionally adding a delayed
+    # re-read behind the flag if a live session shows nameChange is not
+    # enough on its own.
+    @script(gesture="kb:control+pageUp")
+    def script_presetPrevFallback(self, gesture):
+        gesture.send()
+        if self._preset_fallback_enabled:
+            wx.CallLater(250, self._announcePresetChange)
+
+    @script(gesture="kb:control+pageDown")
+    def script_presetNextFallback(self, gesture):
+        gesture.send()
+        if self._preset_fallback_enabled:
+            wx.CallLater(250, self._announcePresetChange)
 
     # ── Grid cell cache (fast lookup for navigation) ───────────────────────
 
@@ -1104,6 +1611,209 @@ class AppModule(appModuleHandler.AppModule):
             )
         )
 
+    # ── Parameter-panel page navigation (Tone, Preamp, Speaker, ...) ────────
+    #
+    # The pages are a vertical column of role-STATICTEXT labels that share a
+    # left edge and width and stack contiguously. They are NOT a tab control:
+    # no tab role, no SELECTED state, value just echoes the name -- so which
+    # page is current is not exposed to the tree (only a colour highlight), and
+    # JUCE fires no event when it changes. So we drive it ourselves: discover
+    # the column, keep our own cursor into it, click the target tab (absolute
+    # synth click, the only thing these custom widgets honour) and speak it.
+
+    _page_index = 0
+    _page_names = ()               # last discovered page names (detects block change)
+    _page_name_set = frozenset()   # cheap membership test for the overlay
+    _page_left = None              # left x of the column (disambiguates the overlay)
+    _PAGE_MIN_RUN = 3              # a real page column is at least this many labels
+    # JUCE DE-EXPOSES the page-tab column from the accessibility tree after we
+    # click a tab (confirmed live: first press finds 10 tabs at left=336, every
+    # press after finds none). So we cache each tab's name + click centre from
+    # the last successful discovery and click by cached coordinates on later
+    # presses, only re-walking the tree when the selected block changes.
+    _page_coords = ()              # cached ((name, cx, cy), ...) from last discovery
+    _page_cache_block = None       # selected-block label the cache belongs to
+    # Clicking a page tab transiently lands focus on other controls (e.g. the
+    # channel buttons) before we focus the page's first param ourselves. Swallow
+    # that focus churn for a short window so only our announcement is heard.
+    _page_switch_time = 0.0
+    _PAGE_SWITCH_SUPPRESS_S = 0.6
+
+    def _collect_statictexts(self, obj, out, depth):
+        if depth > 30:
+            return
+        try:
+            if obj.role == controlTypes.Role.STATICTEXT:
+                name = (obj.name or "").strip()
+                loc = obj.location
+                if name and loc and loc.width and loc.height:
+                    out.append(obj)
+        except Exception:
+            pass
+        child = obj.firstChild
+        while child:
+            self._collect_statictexts(child, out, depth + 1)
+            child = child.next
+
+    def get_page_tabs(self):
+        """Discover the parameter panel's page-tab column.
+
+        Returns the page-tab NVDAObjects top-to-bottom, or [] if none. The pages
+        are the longest run of same-role static-text labels that share a
+        ``(left, width)`` and stack in a contiguous vertical line -- unique to
+        the page column in this UI (param captions are role-7 too but scattered
+        across the knob area, never forming a uniform column). Resets the page
+        cursor when the set of names changes (a different block's panel loaded)
+        and refreshes the overlay's membership/left-edge caches.
+        """
+        root = api.getForegroundObject()
+        if root is None:
+            return []
+        texts = []
+        self._collect_statictexts(root, texts, depth=0)
+        buckets = {}
+        for o in texts:
+            loc = o.location
+            buckets.setdefault((loc.left, loc.width), []).append(o)
+        best = []
+        for group in buckets.values():
+            if len(group) < self._PAGE_MIN_RUN:
+                continue
+            group.sort(key=lambda o: o.location.top)
+            run = [group[0]]
+            longest = run
+            for prev, cur in zip(group, group[1:]):
+                gap = cur.location.top - (prev.location.top + prev.location.height)
+                # Contiguous = next label starts about where the previous ended
+                # (tabs here slightly overlap: step 64, height 66 -> gap ~= -2).
+                if -(prev.location.height // 2) <= gap <= prev.location.height:
+                    run.append(cur)
+                else:
+                    run = [cur]
+                if len(run) > len(longest):
+                    longest = run
+            if len(longest) > len(best):
+                best = longest
+        if len(best) < self._PAGE_MIN_RUN:
+            return []
+        names = tuple((o.name or "").strip() for o in best)
+        if names != self._page_names:
+            self._page_names = names
+            self._page_index = 0
+        self._page_name_set = frozenset(names)
+        self._page_left = best[0].location.left
+        return best
+
+    def _is_at_page_left(self, obj):
+        """True if obj sits at the discovered page column's left edge."""
+        if self._page_left is None:
+            return False
+        try:
+            loc = obj.location
+            return bool(loc) and abs(loc.left - self._page_left) <= 4
+        except Exception:
+            return False
+
+    def _page_tab_coords(self):
+        """Return the page tabs as ((name, cx, cy), ...) click-centre tuples.
+
+        Prefers a fresh tree walk (get_page_tabs), which refreshes the cache;
+        but JUCE de-exposes the column after we click a tab, so when the walk
+        comes back empty we fall back to the cached coordinates -- as long as we
+        are still on the same block (else the cache is stale and we clear it).
+        """
+        block = self._selected_block_label()
+        tabs = self.get_page_tabs()
+        if tabs:
+            coords = []
+            for o in tabs:
+                loc = o.location
+                if loc:
+                    coords.append((
+                        (o.name or "").strip(),
+                        loc.left + loc.width // 2,
+                        loc.top + loc.height // 2,
+                    ))
+            if len(coords) >= self._PAGE_MIN_RUN:
+                self._page_coords = tuple(coords)
+                self._page_cache_block = block
+                return self._page_coords
+        # Tree walk found nothing usable. Reuse the cache only if we are still on
+        # the block it was built for (the column was just de-exposed by our own
+        # click); otherwise the cache is stale.
+        if self._page_coords and block == self._page_cache_block:
+            return self._page_coords
+        self._page_coords = ()
+        self._page_cache_block = None
+        return ()
+
+    def _select_page(self, delta):
+        """Move the page cursor by delta, click that tab so the app switches to
+        it, and speak its name. Clicking is what makes the announcement truthful
+        -- we say exactly the page we activated, never a state we cannot read."""
+        coords = self._page_tab_coords()
+        if not coords:
+            speech.cancelSpeech()
+            ui.message("No parameter pages here")
+            return
+        new_index = max(0, min(self._page_index + delta, len(coords) - 1))
+        self._page_index = new_index
+        name, cx, cy = coords[new_index]
+        speech.cancelSpeech()
+        self._page_switch_time = time.time()  # suppress the click's focus churn
+        self._click_point(cx, cy)
+        # Land on the new page's first parameter (no separate NVDA+Shift+F
+        # needed). The page has to re-render after the click first, so defer the
+        # focus; the announcement then carries both the page and where we landed.
+        wx.CallLater(
+            self._PAGE_FOCUS_DELAY_MS,
+            self._focus_first_param, name or "Page {0}".format(new_index + 1),
+        )
+
+    _PAGE_FOCUS_DELAY_MS = 250
+
+    def _focus_first_param(self, prefix=""):
+        """Focus the first parameter of the current block/page and announce it.
+
+        Same selection as NVDA+Shift+F (tree-order first on the Cab block,
+        geometric top-left elsewhere). If a prefix is given (the page name), the
+        announcement is "<page>, <param>" so a page switch says both at once.
+        """
+        root = api.getForegroundObject()
+        candidates = []
+        if root is not None:
+            self._collect_params(root, candidates, depth=0)
+        if not candidates:
+            if prefix:
+                speech.cancelSpeech()
+                ui.message(prefix)
+            return
+        if self._on_cab_block():
+            param = candidates[0]
+        else:
+            param = min(candidates, key=self._param_sort_key)
+        try:
+            param.setFocus()
+        except Exception:
+            pass
+        speech.cancelSpeech()
+        pname = _clean_value_name(param.name) or param.name or "Parameter"
+        ui.message("{0}, {1}".format(prefix, pname) if prefix else pname)
+
+    @script(
+        description="Axe-Edit: Next parameter page (Tone, Preamp, Speaker, ...)",
+        gesture="kb:NVDA+shift+pageDown",
+    )
+    def script_nextPage(self, gesture):
+        self._select_page(1)
+
+    @script(
+        description="Axe-Edit: Previous parameter page",
+        gesture="kb:NVDA+shift+pageUp",
+    )
+    def script_prevPage(self, gesture):
+        self._select_page(-1)
+
     # ── Cabling (create connections between blocks) ────────────────────────
     #
     # Axe-Edit's routing cables carry no accessible identity, so they can't be
@@ -1254,6 +1964,8 @@ class AppModule(appModuleHandler.AppModule):
     _MOUSEEVENTF_MOVE = 0x0001
     _MOUSEEVENTF_LEFTDOWN = 0x0002
     _MOUSEEVENTF_LEFTUP = 0x0004
+    _MOUSEEVENTF_RIGHTDOWN = 0x0008
+    _MOUSEEVENTF_RIGHTUP = 0x0010
     _MOUSEEVENTF_ABSOLUTE = 0x8000
 
     @classmethod
@@ -1281,6 +1993,29 @@ class AppModule(appModuleHandler.AppModule):
         user32.mouse_event(cls._MOUSEEVENTF_LEFTDOWN | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
         time.sleep(0.03)
         user32.mouse_event(cls._MOUSEEVENTF_LEFTUP | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
+
+    @classmethod
+    def _right_click_point(cls, x, y):
+        """A single synthesized RIGHT click at screen point (x, y).
+
+        Mirrors ``_click_point`` exactly -- same ABSOLUTE-coordinate technique,
+        same small settle/press gaps -- but fires RIGHTDOWN/RIGHTUP instead of
+        LEFTDOWN/LEFTUP, to pop a block's context menu at the focused grid
+        cell (the Applications key) instead of clicking a jack.
+        """
+        x, y = int(round(x)), int(round(y))
+        user32 = ctypes.windll.user32
+        sw = user32.GetSystemMetrics(0) or 1  # SM_CXSCREEN
+        sh = user32.GetSystemMetrics(1) or 1  # SM_CYSCREEN
+        ax = (65536 * x) // sw + 1
+        ay = (65536 * y) // sh + 1
+        user32.SetCursorPos(x, y)
+        time.sleep(0.05)
+        user32.mouse_event(cls._MOUSEEVENTF_MOVE | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
+        time.sleep(0.02)
+        user32.mouse_event(cls._MOUSEEVENTF_RIGHTDOWN | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
+        time.sleep(0.03)
+        user32.mouse_event(cls._MOUSEEVENTF_RIGHTUP | cls._MOUSEEVENTF_ABSOLUTE, ax, ay, 0, 0)
 
     # ── Top menu bar (Alt+letter opens each menu) ──────────────────────────
 
@@ -1339,6 +2074,77 @@ class AppModule(appModuleHandler.AppModule):
     @script(description="Axe-Edit: Open the Help menu", gesture="kb:alt+h")
     def script_menuHelp(self, gesture):
         self._open_menu("Help", gesture)
+
+    # ── Preset import / export shortcuts ────────────────────────────────
+    #
+    # The Preset menu already has Import Preset / Export Preset items that
+    # load and save a preset file from disk -- they only respond to a mouse
+    # click, with no keyboard shortcut. Ctrl+I / Ctrl+E open the Preset menu
+    # (reusing the same menu-bar lookup the Alt+P shortcut above uses) and
+    # then try to invoke whichever child item's name CONTAINS "Import"/"Export".
+    # NOTE (2026-08-09): INCOMPLETE -- the Ctrl+I / Ctrl+E gestures below are
+    # UNBOUND for now. When the Preset menu opens it is a SEPARATE POPUP that is
+    # not under getForegroundObject(), so _invoke_menu_child can't find the item
+    # (the menu opens but the action never fires). Pending a keystroke-driven
+    # rebuild; the code is kept for reference.
+
+    _MENU_CHILD_SETTLE_MS = 150
+
+    def _invoke_menu_command(self, menu_label, item_keyword, gesture=None):
+        root = api.getForegroundObject()
+        menu = self._find_menu_item(root, menu_label, depth=0) if root else None
+        if menu is None or not _invoke_control(menu, allow_mouse=True):
+            if gesture is not None:
+                gesture.send()
+            return
+        wx.CallLater(
+            self._MENU_CHILD_SETTLE_MS,
+            self._invoke_menu_child, item_keyword,
+        )
+
+    def _invoke_menu_child(self, item_keyword):
+        root = api.getForegroundObject()
+        item = (
+            self._find_menu_item_containing(root, item_keyword, depth=0)
+            if root else None
+        )
+        if item is not None:
+            _invoke_control(item, allow_mouse=True)
+
+    def _find_menu_item_containing(self, obj, keyword, depth):
+        """Like _find_menu_item, but matches a menu item whose name CONTAINS
+        keyword (case-insensitive) rather than requiring an exact label --
+        used for submenu items whose precise wording we don't want to
+        hard-code."""
+        if depth > 30:
+            return None
+        try:
+            if obj.role == controlTypes.Role.MENUITEM and (
+                keyword.lower() in (obj.name or "").strip().lower()
+            ):
+                return obj
+        except Exception:
+            pass
+        child = obj.firstChild
+        while child:
+            found = self._find_menu_item_containing(child, keyword, depth + 1)
+            if found is not None:
+                return found
+            child = child.next
+        return None
+
+    # Unbound (no gesture=) pending the rebuild described above.
+    @script(
+        description="Axe-Edit: Import a preset file (Preset menu) [unbound, WIP]",
+    )
+    def script_importPreset(self, gesture):
+        self._invoke_menu_command("Preset", "Import", gesture)
+
+    @script(
+        description="Axe-Edit: Export a preset file (Preset menu) [unbound, WIP]",
+    )
+    def script_exportPreset(self, gesture):
+        self._invoke_menu_command("Preset", "Export", gesture)
 
     # ── Section navigation ────────────────────────────────────────────────
 
@@ -1463,9 +2269,20 @@ class AppModule(appModuleHandler.AppModule):
         if not candidates:
             ui.message("No parameters found")
             return
-        # The "first" parameter is the visually top-most, then left-most one
-        # (matches where a sighted user's cursor lands: the first knob).
-        param = min(candidates, key=self._param_sort_key)
+        # The "first" parameter is normally the visually top-most, then
+        # left-most one (matches where a sighted user's cursor lands: the first
+        # knob). The Cab block is the exception: its panel stacks two or more
+        # identical cab columns side by side, all sharing the same row tops, plus
+        # a block-output column (Level/Balance) whose slider sits a few pixels
+        # ABOVE the first cab row. Geometry then lands on the output column or
+        # the wrong cab rather than the panel's genuine first control. For the
+        # Cab block we instead take the first parameter in tree (tab) order --
+        # the order _collect_params already appends them in -- which is the true
+        # first focusable control no matter how the columns are laid out.
+        if self._on_cab_block():
+            param = candidates[0]
+        else:
+            param = min(candidates, key=self._param_sort_key)
         param.setFocus()
         speech.cancelSpeech()
         ui.message(_clean_value_name(param.name) or param.name or "Parameter")
@@ -1495,6 +2312,109 @@ class AppModule(appModuleHandler.AppModule):
         while child:
             self._collect_params(child, out, depth + 1)
             child = child.next
+
+    # Cab-block detection for the first-parameter jump (script_goToFirstParam).
+    # A block's parameter panel belongs to whichever grid cell is currently
+    # SELECTED (the cell Axe-Edit loaded the params from). Grid cells report that
+    # selection as a truthful value of "On" -- our grid overlay hides it from the
+    # spoken states, but leaves the underlying value intact -- so we read the
+    # selected cell's block label from the grid index the module already keeps.
+    def _selected_block_label(self):
+        self.ensure_grid_index()
+        for cell in (self._grid_index or {}).values():
+            try:
+                if (cell.value or "").strip().lower() == "on":
+                    return _cable_block_label(cell.name or "")
+            except Exception:
+                continue
+        return ""
+
+    def _on_cab_block(self):
+        """True when the selected block (whose params are on screen) is a Cab.
+
+        The Cab panel is the one layout the top-most/left-most heuristic can't
+        read: it holds several identical cab columns plus a block-output column.
+        Every other block keeps the geometric heuristic unchanged."""
+        return self._selected_block_label().strip().lower().startswith("cab")
+
+    # ── Chain summary (read from the grid, instant) ────────────────────────
+
+    @script(
+        description="Axe-Edit: Speak the current preset's effect chain "
+                    "(estimated order)",
+        gesture="kb:NVDA+shift+o",
+    )
+    def script_speakChain(self, gesture):
+        """Speak the placed blocks in estimated signal order.
+
+        Built entirely from the grid cells already in the accessibility tree, so
+        it is instant. Cells are read column by column (left to right), and top
+        to bottom within a column, which follows the signal flow -- but column
+        order alone cannot see diagonal or parallel cabling, so the order is
+        spoken as an ESTIMATE. Empty cells and shunts are skipped.
+        """
+        self.ensure_grid_index()
+        if not self._grid_index:
+            speech.cancelSpeech()
+            ui.message("No effect grid found")
+            return
+        entries = []
+        for col in range(self.grid_cols):
+            for row in range(self.grid_rows):
+                cell = self.grid_cell(row, col)
+                if cell is None:
+                    continue
+                name = cell.name or ""
+                if not _is_placed_block(_cable_block_label(name)):
+                    continue
+                summary = _block_summary(name)
+                if summary:
+                    entries.append(summary)
+        speech.cancelSpeech()
+        if not entries:
+            ui.message("No blocks placed")
+            return
+        ui.message(
+            "Estimated chain, left to right: {0}. Order is approximate; "
+            "cabling is not read.".format(", ".join(entries))
+        )
+
+    @script(
+        description="Axe-Edit: Summarise the selected block's parameters",
+        gesture="kb:NVDA+shift+b",
+    )
+    def script_speakFocusedBlock(self, gesture):
+        """Summarise the parameters currently shown for the selected block.
+
+        Speaks each visible parameter and its value, in screen order, so you can
+        hear a block's settings at a glance instead of arrowing one at a time.
+        It reads whichever parameter PAGE is showing, so pair it with the page
+        commands (NVDA+Shift+PageDown/PageUp) to summarise a specific page. Falls
+        back to the focused cell's block + bypass state if no parameters are up.
+        """
+        root = api.getForegroundObject()
+        params = []
+        if root is not None:
+            self._collect_params(root, params, depth=0)
+        speech.cancelSpeech()
+        if not params:
+            obj = api.getFocusObject()
+            summary = _block_summary((obj.name if obj is not None else "") or "")
+            ui.message(summary or "No parameters to summarise")
+            return
+        params.sort(key=self._param_sort_key)
+        parts = []
+        for p in params:
+            txt = _clean_value_name(p.name or "")
+            if txt:
+                parts.append(txt)
+        block = self._selected_block_label()
+        if parts and block:
+            ui.message("{0}: {1}".format(block, ", ".join(parts)))
+        elif parts:
+            ui.message(", ".join(parts))
+        else:
+            ui.message(block or "No parameters to summarise")
 
     # ── Diagnostics ───────────────────────────────────────────────────────
 
