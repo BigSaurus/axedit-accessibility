@@ -16,6 +16,10 @@ Each item below links to a GitHub issue where the work happens. Items under
 
 ## Planned / help wanted
 - **FM3-edit and FM9-edit support** — #1
+- **Speak a block's / preset's signal routing (connection graph)** — #7
+- **Remove / disconnect a cable from the keyboard** — #8
+- **Announce the Cab block's IR (Library) selector as you change it** — #9
+- **Label the unlabelled controls in the Setup windows** — #10
 
 <!-- END AUTO -->
 
