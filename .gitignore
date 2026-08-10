@@ -16,3 +16,7 @@ scrub_pii.py
 pii_tokens.local
 RELEASE.md
 generate_roadmap.py
+
+# Maintainer-only routing-readout research (prototype decoder + sample UIA dump)
+axedit-accessibility/docs/routing_readout_prototype.py
+axedit-accessibility/docs/sample_dump_parallel_amps.json
