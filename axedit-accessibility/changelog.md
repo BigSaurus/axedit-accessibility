@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0
+- **Better support for the FM3.** The number-key column jumps (**NVDA+Ctrl+0
+  through 9**) now find the main signal row automatically -- the row carrying the
+  Input and Output blocks -- instead of assuming it is row 2. On the FM3 the
+  chain lives on the top row, so the jumps now land on your blocks rather than an
+  empty row; on the Axe-Fx III nothing changes. It also follows the row wherever
+  you built it, so top-down and parallel layouts work too. Grid navigation
+  already sizes itself to the connected editor, so the FM3's smaller grid and its
+  edges navigate correctly.
+
 ## 0.10.0
 - **Preset changes are announced.** Change preset with **Ctrl+PageUp /
   Ctrl+PageDown** and NVDA now speaks the new preset's number and name (e.g.

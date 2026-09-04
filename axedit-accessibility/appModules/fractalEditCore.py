@@ -117,7 +117,8 @@ Navigation / commands
   NVDA+Shift+C (on a grid cell) -- start a cable from this block; press again on
                    another block to connect its output to that block's input
                    (Escape, or pressing it on the same block, cancels)
-  NVDA+Ctrl+0..9   -- jump straight to row 2, that column (e.g. +5 = the amp)
+  NVDA+Ctrl+0..9   -- jump straight to the main signal row (the Input/Output
+                   row), that column (e.g. +5 = the sixth cell along that row)
   NVDA+Shift+A   -- jump to the Amp block
   NVDA+Shift+E   -- jump to the Effects grid (row 0, column 0)
   NVDA+Shift+F   -- jump to the first parameter of the current block
@@ -891,9 +892,10 @@ class AppModule(appModuleHandler.AppModule):
     grid_rows = _GRID_ROWS
     grid_cols = _GRID_COLS
 
-    # The main signal row that the number-key jumps target. Axe-Edit's default
-    # preset chain sits on row 2 (0-indexed); NVDA+Shift+<digit> jumps to that
-    # row, column = digit.
+    # Fallback main signal row for the number-key jumps when the grid has no
+    # Input/Output to detect from (e.g. an empty grid). Axe-Edit III's default
+    # preset chain sits on row 2 (0-indexed); the FM3 uses row 0. The live row
+    # is detected in _detect_main_row(); this is only the empty-grid fallback.
     _MAIN_ROW = 2
 
     # ── Overlay class assignment ───────────────────────────────────────────
@@ -2231,14 +2233,14 @@ class AppModule(appModuleHandler.AppModule):
 
     @script(
         description="Axe-Edit: Jump to a column on the main signal row "
-                    "(NVDA+Ctrl+0 through 9 = row 2, columns 0-9)",
+                    "(NVDA+Ctrl+0 through 9 = the Input/Output row, columns 0-9)",
         gestures=["kb:NVDA+control+{0}".format(d) for d in range(10)],
     )
     def script_jumpMainRowColumn(self, gesture):
         digit = self._gesture_digit(gesture)
         if digit is None:
             return
-        self.jump_to_cell(self._MAIN_ROW, digit)
+        self.jump_to_cell(self._detect_main_row(), digit)
 
     @staticmethod
     def _gesture_digit(gesture):
@@ -2319,6 +2321,35 @@ class AppModule(appModuleHandler.AppModule):
     # selection as a truthful value of "On" -- our grid overlay hides it from the
     # spoken states, but leaves the underlying value intact -- so we read the
     # selected cell's block label from the grid index the module already keeps.
+    def _detect_main_row(self):
+        """The primary signal row, detected from the grid rather than assumed.
+
+        Axe-Edit III's default preset chain sits on row 2; the FM3 uses row 0;
+        a top-down or parallel build can put it elsewhere. The primary row is
+        the one carrying the Input (and Output) block, so find that instead of
+        trusting a fixed row. Falls back to _MAIN_ROW when the grid is empty or
+        has no Input/Output (e.g. before any block is placed)."""
+        self.ensure_grid_index()
+        input_rows = set()
+        output_rows = set()
+        for (r, _c), cell in (self._grid_index or {}).items():
+            try:
+                label = _cable_block_label(cell.name or "").strip().lower()
+            except Exception:
+                continue
+            if label.startswith("input"):
+                input_rows.add(r)
+            elif label.startswith("output"):
+                output_rows.add(r)
+        both = input_rows & output_rows
+        if both:
+            return min(both)
+        if input_rows:
+            return min(input_rows)
+        if output_rows:
+            return min(output_rows)
+        return self._MAIN_ROW
+
     def _selected_block_label(self):
         self.ensure_grid_index()
         for cell in (self._grid_index or {}).values():

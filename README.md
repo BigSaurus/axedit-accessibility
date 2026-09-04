@@ -65,7 +65,7 @@ keyboard.
 ### Anywhere in Axe-Edit
 | Key | Action |
 | --- | --- |
-| NVDA+Ctrl+0 … 9 | Jump to row 2, that column (NVDA+Ctrl+5 = the amp) |
+| NVDA+Ctrl+0 … 9 | Jump to the main signal row (the Input/Output row), that column |
 | Alt+P / B / T / S / H | Open the Preset / Block / Tools / Settings / Help menu |
 | NVDA+Shift+A | Amp block |
 | NVDA+Shift+E | Effects grid |
@@ -119,8 +119,9 @@ That dump is enough to confirm support and fix whatever is off.
   cables carry no accessible identity, so the add-on can't tell you what is
   already wired, and it confirms a new cable by speaking the intended connection
   rather than by reading it. Reading existing routing is planned separately.
-- Number-key column jumps target row 2 (Axe-Edit's default chain row); use
-  arrows for other rows.
+- Number-key column jumps target the main signal row, detected automatically as
+  the row carrying the Input/Output blocks (row 2 on the Axe-Fx III, row 0 on the
+  FM3, or wherever you built the chain); use arrows for other rows.
 - The right-click "add block" menu is exposed only via IAccessible2 and is not
   yet accessible — planned as separate work.
 - Pressing Enter on a model selector opens Axe-Edit's full-window model picker,

@@ -20,3 +20,6 @@ generate_roadmap.py
 # Maintainer-only routing-readout research (prototype decoder + sample UIA dump)
 axedit-accessibility/docs/routing_readout_prototype.py
 axedit-accessibility/docs/sample_dump_parallel_amps.json
+
+# FM3-Edit diagnostic dumps contributed on issue #1 (test fixtures, kept local)
+axedit-accessibility/docs/fm3_fixtures/
